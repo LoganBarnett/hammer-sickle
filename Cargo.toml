@@ -10,4 +10,4 @@ edition = "2018"
 reqwest = { version = "0.11", features = ["blocking", "json"] }
 serde = { version = "1.0.123", features = ["derive"] }
 serde_json = "1.0.64"
-structop = "0.3.21"
+structopt = "0.3.21"
