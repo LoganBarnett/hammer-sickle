@@ -1,0 +1,169 @@
+#+title:     Getting Started with hammer-sickle
+#+language:  en
+
+This guide will help you get started developing and building
+hammer-sickle.
+
+* Prerequisites
+
+- [[https://nixos.org/download.html][Nix]] with flakes enabled
+- Git
+
+* Setting Up
+
+** Enter the development environment
+
+#+begin_src sh
+nix develop
+#+end_src
+
+This sets up the correct Rust toolchain, ~cargo~, and other tools.
+
+** Build the project
+
+#+begin_src sh
+# Build all packages
+cargo build --workspace
+
+# Build specific package
+cargo build -p hammer-sickle-cli
+#+end_src
+
+** Run the application
+
+#+begin_src sh
+# Show help
+./target/debug/hammer-sickle --help
+
+# Run with explicit credentials
+./target/debug/hammer-sickle \
+  -U https://foreman.example.com \
+  -s "hostgroup = webservers" \
+  -c "uptime"
+#+end_src
+
+** Run tests
+
+#+begin_src sh
+# Run all tests
+cargo test --workspace
+
+# Run tests for a specific package
+cargo test -p hammer-sickle-cli
+#+end_src
+
+* Configuration
+
+Configuration is resolved in this order of precedence:
+
+1. Command-line arguments
+2. Environment variables
+3. Configuration file (~config.toml~)
+4. Defaults
+
+** Configuration file
+
+Copy ~config.example.toml~ to ~config.toml~ and fill in values:
+
+#+begin_src toml
+log_level = "info"
+log_format = "text"
+
+foreman_url = "https://foreman.example.com"
+foreman_user = "admin"
+foreman_password = "secret"
+#+end_src
+
+** Environment variables
+
+#+begin_src sh
+export FOREMAN_URL=https://foreman.example.com
+export FOREMAN_USER=admin
+export FOREMAN_PASS=secret
+export LOG_LEVEL=debug
+export LOG_FORMAT=json
+#+end_src
+
+* Project Structure
+
+#+begin_example
+.
+├── crates/
+│   ├── cli/           # Binary: hammer-sickle
+│   │   ├── src/
+│   │   │   ├── config.rs    # Staged configuration types
+│   │   │   ├── foreman.rs   # Foreman API client
+│   │   │   ├── logging.rs   # Logging initialisation
+│   │   │   ├── ssh.rs       # SSH command dispatch
+│   │   │   └── main.rs      # Orchestrator
+│   │   └── tests/           # Integration tests
+│   └── lib/           # Shared library
+│       └── src/
+│           ├── logging.rs   # LogLevel / LogFormat types
+│           └── lib.rs
+├── flake.nix          # Nix development environment and packages
+├── Cargo.toml         # Workspace configuration
+└── rustfmt.toml       # Code formatting rules
+#+end_example
+
+* Development Workflow
+
+** Code formatting
+
+Code is automatically formatted on commit via the cargo-husky
+pre-commit hook.  The hook is installed the first time you run ~cargo
+test~.  Run ~git commit~ inside ~nix develop~ so that ~rustfmt~ is
+available to the hook.
+
+#+begin_src sh
+# Manually format all code
+cargo fmt
+
+# Check formatting without changing files
+cargo fmt -- --check
+#+end_src
+
+** Adding new dependencies
+
+Add to the workspace ~Cargo.toml~:
+
+#+begin_src toml
+[workspace.dependencies]
+my-new-dep = "1.0"
+#+end_src
+
+Then reference it in a package ~Cargo.toml~:
+
+#+begin_src toml
+[dependencies]
+my-new-dep = { workspace = true }
+#+end_src
+
+* Troubleshooting
+
+** Nix issues
+
+#+begin_src sh
+# Rebuild the environment
+nix develop --rebuild
+
+# Clear direnv cache
+rm -rf .direnv
+direnv allow
+#+end_src
+
+** Build issues
+
+#+begin_src sh
+# Clean build artifacts
+cargo clean
+
+# Update dependencies
+cargo update
+#+end_src
+
+* Additional Resources
+
+- [[https://doc.rust-lang.org/book/][The Rust Book]]
+- [[https://docs.rs/clap/][Clap documentation]]
+- [[https://docs.rs/tracing/][Tracing documentation]]

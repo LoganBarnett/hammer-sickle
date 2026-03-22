@@ -1,0 +1,15 @@
+[package]
+name = "hammer-sickle-lib"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+tracing = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tap = { workspace = true }
+
+[dev-dependencies]
+cargo-husky = { version = "1", default-features = false, features = ["user-hooks"] }

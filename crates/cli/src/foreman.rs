@@ -1,24 +1,39 @@
+use crate::config::Config;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
 // The Foreman API for /api/hosts can be found here:
 // https://theforeman.org/api/2.3/apidoc/v2/hosts/index.html
 //
 // The documentation is rather lacking in examples of complex structures, and
-// instead they opt for "null" in the examples. This documentation has no formal
-// structure listed. The structures below are guesses based on real queries in
-// private infrastructure, so they won't be shared here. These structures will
-// likely need revision to match what the APIs truly use.
+// instead they opt for "null" in the examples. This documentation has no
+// formal structure listed. The structures below are guesses based on real
+// queries in private infrastructure, so they won't be shared here. These
+// structures will likely need revision to match what the APIs truly use.
+
+#[derive(Debug, Error)]
+pub enum ForemanError {
+  #[error("Failed to fetch hosts from Foreman at {url}: {source}")]
+  HostFetch {
+    url: String,
+    #[source]
+    source: reqwest::Error,
+  },
+
+  #[error("Failed to parse hosts response from Foreman at {url}: {source}")]
+  ResponseParse {
+    url: String,
+    #[source]
+    source: reqwest::Error,
+  },
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ForemanApiProxy {
   pub id: i64,
   pub name: Option<String>,
   pub url: Option<String>,
 }
-
-// Don't actually use this - Foremand doesn't exhaustively document this, and
-// doesn't indicate that the values could be anything.
-// String BUILD = "build",
-// String IMAGE = "image",
-// String SNAPSHOTS = "snapshots",
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ForemanApiSortBy {
@@ -112,4 +127,28 @@ pub struct ForemanApiPage<R> {
   pub sort: ForemanApiSortBy,
   pub subtotal: i64,
   pub total: i64,
+}
+
+pub fn fetch_hosts(config: &Config) -> Result<Vec<String>, ForemanError> {
+  let url = format!(
+    "{url_base}/api/hosts?search={search}",
+    url_base = config.foreman_url,
+    search = config.search,
+  );
+
+  // Foreman supports both OAuth and basic auth. Use basic for simplicity for
+  // now. See https://projects.theforeman.org/projects/foreman/wiki/API_OAuth
+  // when that fateful day arrives.
+  let resp = reqwest::blocking::Client::new()
+    .get(&url)
+    .basic_auth(&config.foreman_user, Some(&config.foreman_password))
+    .send()
+    .map_err(|source| ForemanError::HostFetch {
+      url: url.clone(),
+      source,
+    })?
+    .json::<ForemanApiPage<ForemanApiHost>>()
+    .map_err(|source| ForemanError::ResponseParse { url, source })?;
+
+  Ok(resp.results.into_iter().map(|h| h.name).collect())
 }

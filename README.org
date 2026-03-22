@@ -1,0 +1,100 @@
+#+title:     hammer-sickle
+#+language:  en
+
+* Introduction
+
+~hammer-sickle~ runs a shell command across a fleet of hosts managed by
+[[https://theforeman.org/][Foreman]].  Given a Foreman search expression it fetches the matching
+host list, opens an SSH connection to each one, and streams the output
+back to your terminal prefixed by hostname.
+
+The main use case is ad-hoc operational commands — checking service
+status, pushing a quick config change, or gathering facts — without
+reaching for a full configuration-management run.
+
+* Installation
+
+** From source
+
+Requires Nix with flakes enabled (recommended) or a Rust toolchain ≥
+1.77.
+
+#+begin_src sh
+git clone <repo-url> hammer-sickle
+cd hammer-sickle
+nix develop --command cargo build --release
+# binary is at target/release/hammer-sickle
+#+end_src
+
+* Usage
+
+~hammer-sickle~ requires at minimum a search expression (~-s~), a
+command to run (~-c~), and Foreman connection details.
+
+#+begin_src sh
+hammer-sickle \
+  -U https://foreman.example.com \
+  -s "hostgroup = webservers" \
+  -c "systemctl status nginx"
+#+end_src
+
+Output is printed to stdout with each line prefixed by the originating
+hostname:
+
+#+begin_example
+web01.example.com: ● nginx.service - A high performance web server
+web01.example.com:    Active: active (running)
+web02.example.com: ● nginx.service - A high performance web server
+#+end_example
+
+* Gotchas and Tradeoffs
+
+- *Hosts are contacted sequentially*, not in parallel.  For large
+  fleets this can be slow.
+
+- *SSH host-key checking applies* as normal.  Hosts whose keys are not
+  in ~known_hosts~ will block waiting for confirmation unless you
+  pre-populate the file or disable strict checking in your SSH config.
+
+- *stdout and stderr are both printed to stdout*, prefixed by hostname.
+  There is no way to separate them in the current output format.
+
+- *Foreman basic auth only.*  OAuth is not yet supported.  See the
+  comment in ~crates/cli/src/foreman.rs~ for the relevant upstream
+  docs when the time comes.
+
+* How to Exercise Various Features
+
+** Credentials via environment variables
+
+#+begin_src sh
+export FOREMAN_URL=https://foreman.example.com
+export FOREMAN_USER=admin        # falls back to $USER if unset
+export FOREMAN_PASS=secret
+
+hammer-sickle -s "environment = production" -c "uptime"
+#+end_src
+
+** Configuration file
+
+Copy ~config.example.toml~ to ~config.toml~ and fill in your Foreman
+details.  The file is read automatically if present in the working
+directory.
+
+** Structured logging
+
+#+begin_src sh
+hammer-sickle --log-format json --log-level debug \
+  -s "name ~ web" -c "hostname"
+#+end_src
+
+* Contributing
+
+#+begin_src sh
+nix develop --command cargo test --workspace
+#+end_src
+
+Code is automatically formatted on commit via the cargo-husky
+pre-commit hook, which is installed the first time you run ~cargo
+test~.  Run ~git commit~ inside ~nix develop~ so that ~rustfmt~ is
+available to the hook.

@@ -1,0 +1,201 @@
+#+title:     Customizing hammer-sickle for Your Project
+#+language:  en
+
+This guide explains how to adapt this project as a starting point for
+your own work.
+
+* Quick Rename Guide
+
+** Update project names
+
+Replace ~hammer-sickle~ with your project name throughout:
+
+#+begin_src sh
+PROJECT_NAME="my-app"
+
+find . -type f \( -name "*.toml" -o -name "*.rs" -o -name "*.org" \) \
+  -not -path "*/target/*" \
+  -exec sed -i '' "s/hammer-sickle/${PROJECT_NAME}/g" {} +
+#+end_src
+
+** Update Cargo.toml metadata
+
+Edit the workspace ~Cargo.toml~:
+
+#+begin_src toml
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <your.email@example.com>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/yourusername/your-project"
+#+end_src
+
+** Update flake.nix workspace crates
+
+Edit ~flake.nix~ and update the ~workspaceCrates~ section:
+
+#+begin_src nix
+workspaceCrates = {
+  cli = {
+    name = "my-app-cli";
+    binary = "my-app";
+    description = "CLI application";
+  };
+};
+#+end_src
+
+The ~workspaceCrates~ attrset is the single source of truth for Nix
+package generation, ~nix run~ apps, and overlay generation.
+
+** Rename directories
+
+#+begin_src sh
+mv crates/cli "crates/${PROJECT_NAME}-cli"
+mv crates/lib "crates/${PROJECT_NAME}-lib"
+# Update Cargo.toml workspace members accordingly
+#+end_src
+
+* Adding New Workspace Crates
+
+1. Create the crate:
+
+   #+begin_src sh
+   cargo new --bin crates/worker
+   #+end_src
+
+2. Add to workspace ~Cargo.toml~:
+
+   #+begin_src toml
+   [workspace]
+   members = [
+       "crates/cli",
+       "crates/lib",
+       "crates/worker",
+   ]
+   #+end_src
+
+3. Write the package ~Cargo.toml~:
+
+   #+begin_src toml
+   [package]
+   name = "my-app-worker"
+   version.workspace = true
+   edition.workspace = true
+   authors.workspace = true
+   license.workspace = true
+
+   [[bin]]
+   name = "my-app-worker"
+   path = "src/main.rs"
+
+   [dependencies]
+   my-app-lib = { workspace = true }
+   #+end_src
+
+4. Add to ~flake.nix~ ~workspaceCrates~:
+
+   #+begin_src nix
+   worker = {
+     name = "my-app-worker";
+     binary = "my-app-worker";
+     description = "Background worker";
+   };
+   #+end_src
+
+5. Implement with the same patterns: staged config in ~config.rs~,
+   semantic error types with ~thiserror~, integration tests.
+
+* Customizing Logging
+
+** Adding custom log fields
+
+Edit ~crates/lib/src/logging.rs~ to extend the shared logging types:
+
+#+begin_src rust :results none :exports code
+pub struct LoggingConfig {
+    pub level: LogLevel,
+    pub format: LogFormat,
+    pub service_name: String,
+}
+#+end_src
+
+** Adding more log formats
+
+#+begin_src rust :results none :exports code
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogFormat {
+    Text,
+    Json,
+    Logfmt,
+}
+#+end_src
+
+* Customizing Configuration
+
+Each binary crate has its own ~config.rs~.  Add settings there:
+
+#+begin_src rust :results none :exports code
+#[derive(Debug)]
+pub struct Config {
+    pub log_level: LogLevel,
+    pub log_format: LogFormat,
+
+    // Application-specific fields
+    pub database_url: String,
+    pub api_key: Option<String>,
+    pub max_retries: u32,
+}
+#+end_src
+
+Remember to update ~CliRaw~, ~ConfigFileRaw~, and the
+~from_cli_and_file~ merge logic to match.
+
+* Building Nix Packages
+
+#+begin_src sh
+# Build the CLI package
+nix build .#cli
+
+# Build all packages
+nix build .#default
+
+# Run directly
+nix run .#cli -- --help
+#+end_src
+
+* Adding Additional Dependencies
+
+** Workspace-level (shared across crates)
+
+#+begin_src toml
+[workspace.dependencies]
+sqlx = { version = "0.7", features = ["postgres", "runtime-tokio-native-tls"] }
+#+end_src
+
+#+begin_src toml
+# In any crate's Cargo.toml
+[dependencies]
+sqlx = { workspace = true }
+#+end_src
+
+** Package-specific (only one crate needs it)
+
+#+begin_src toml
+# crates/cli/Cargo.toml
+[dependencies]
+specific-crate = "1.0"
+#+end_src
+
+* Pulling Template Updates
+
+If you want to incorporate improvements from the upstream template:
+
+#+begin_src sh
+git remote add template <template-repo-url>
+git fetch template
+# Cherry-pick specific commits or merge carefully:
+git merge template/main --no-commit
+# Resolve conflicts, keeping your customizations.
+#+end_src
