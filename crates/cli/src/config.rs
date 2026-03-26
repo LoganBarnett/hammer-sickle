@@ -33,9 +33,9 @@ pub enum ConfigError {
   about = "Run commands across Foreman-managed hosts."
 )]
 pub struct CliRaw {
-  /// Shell command to run on matched hosts
+  /// Shell command to run on matched hosts (omit to list matching hostnames)
   #[arg(short = 'c', long)]
-  pub command: String,
+  pub command: Option<String>,
 
   /// Foreman host search expression
   #[arg(short = 's', long)]
@@ -61,6 +61,10 @@ pub struct CliRaw {
   #[arg(long, env = "LOG_FORMAT")]
   pub log_format: Option<String>,
 
+  /// Maximum number of hosts to contact simultaneously (0 = all at once)
+  #[arg(short = 'j', long, env = "CONCURRENCY")]
+  pub concurrency: Option<usize>,
+
   /// Path to configuration file
   #[arg(long, env = "CONFIG_FILE")]
   pub config: Option<PathBuf>,
@@ -73,6 +77,7 @@ pub struct ConfigFileRaw {
   pub foreman_url: Option<String>,
   pub foreman_user: Option<String>,
   pub foreman_password: Option<String>,
+  pub concurrency: Option<usize>,
 }
 
 impl ConfigFileRaw {
@@ -95,11 +100,13 @@ impl ConfigFileRaw {
 pub struct Config {
   pub log_level: LogLevel,
   pub log_format: LogFormat,
-  pub command: String,
+  pub command: Option<String>,
   pub search: String,
   pub foreman_url: String,
   pub foreman_user: String,
   pub foreman_password: String,
+  // 0 means rayon auto-detects (one thread per logical CPU).
+  pub concurrency: usize,
 }
 
 impl Config {
@@ -159,6 +166,8 @@ impl Config {
         )
       })?;
 
+    let concurrency = cli.concurrency.or(config_file.concurrency).unwrap_or(1);
+
     Ok(Config {
       log_level,
       log_format,
@@ -167,6 +176,7 @@ impl Config {
       foreman_url,
       foreman_user,
       foreman_password,
+      concurrency,
     })
   }
 }

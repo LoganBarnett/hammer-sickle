@@ -18,6 +18,7 @@ use clap::Parser;
 use config::{CliRaw, Config, ConfigError};
 use foreman::ForemanError;
 use logging::init_logging;
+use rayon::prelude::*;
 use thiserror::Error;
 use tracing::{info, warn};
 
@@ -28,6 +29,13 @@ enum ApplicationError {
 
   #[error("Failed to fetch hosts from Foreman: {0}")]
   ForemanFetch(#[from] ForemanError),
+
+  #[error("Failed to build thread pool with {threads} threads: {source}")]
+  ThreadPoolBuild {
+    threads: usize,
+    #[source]
+    source: rayon::ThreadPoolBuildError,
+  },
 }
 
 fn main() -> Result<(), ApplicationError> {
@@ -56,12 +64,25 @@ fn run(config: Config) -> Result<(), ApplicationError> {
     "Fetched hosts from Foreman",
   );
 
-  for host in &hosts {
-    match ssh::host_command_send(host, &config.command) {
-      Ok(()) => {}
-      Err(e) => warn!(host = %host, error = %e, "SSH command failed"),
-    }
-  }
+  let Some(command) = config.command else {
+    hosts.iter().for_each(|h| println!("{}", h));
+    return Ok(());
+  };
+
+  rayon::ThreadPoolBuilder::new()
+    .num_threads(config.concurrency)
+    .build()
+    .map_err(|source| ApplicationError::ThreadPoolBuild {
+      threads: config.concurrency,
+      source,
+    })?
+    .install(|| {
+      hosts.par_iter().for_each(|host| {
+        if let Err(e) = ssh::host_command_send(host, &command) {
+          warn!(host = %host, error = %e, "SSH command failed");
+        }
+      });
+    });
 
   Ok(())
 }

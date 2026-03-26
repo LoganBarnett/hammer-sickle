@@ -20,11 +20,24 @@ pub enum ForemanError {
     source: reqwest::Error,
   },
 
-  #[error("Failed to parse hosts response from Foreman at {url}: {source}")]
-  ResponseParse {
+  #[error("Failed to read response body from Foreman at {url}: {source}")]
+  ResponseRead {
     url: String,
     #[source]
     source: reqwest::Error,
+  },
+
+  // Includes a truncated body to aid debugging when the API returns something
+  // structurally different from our types.
+  #[error(
+    "Failed to parse hosts response from Foreman at {url}: {source}\n\
+     Response body (first 500 chars): {body}"
+  )]
+  ResponseParse {
+    url: String,
+    #[source]
+    source: serde_json::Error,
+    body: String,
   },
 }
 
@@ -45,8 +58,8 @@ pub struct ForemanApiSortBy {
 pub struct ForemanApiHost {
   pub architecture_id: Option<i64>,
   pub architecture_name: Option<String>,
-  pub build: bool,
-  pub capabilities: Vec<String>,
+  pub build: Option<bool>,
+  pub capabilities: Option<Vec<String>>,
   pub certname: Option<String>,
   pub comment: Option<String>,
   pub compute_profile_id: Option<i64>,
@@ -57,16 +70,16 @@ pub struct ForemanApiHost {
   pub disk: Option<String>,
   pub domain_id: Option<i64>,
   pub domain_name: Option<String>,
-  pub enabled: bool,
+  pub enabled: Option<bool>,
   pub environment_id: Option<i64>,
   pub environment_name: Option<String>,
-  pub global_status: i64,
+  pub global_status: Option<i64>,
   pub global_status_label: Option<String>,
   pub hostgroup_id: Option<i64>,
   pub hostgroup_name: Option<String>,
   pub hostgroup_title: Option<String>,
   pub id: i64,
-  pub image_file: String,
+  pub image_file: Option<String>,
   pub image_id: Option<i64>,
   pub image_name: Option<String>,
   pub installed_at: Option<String>,
@@ -77,7 +90,7 @@ pub struct ForemanApiHost {
   pub location_id: Option<i64>,
   pub location_name: Option<String>,
   pub mac: Option<String>,
-  pub managed: bool,
+  pub managed: Option<bool>,
   pub medium_id: Option<i64>,
   pub medium_name: Option<String>,
   pub model_id: Option<i64>,
@@ -87,9 +100,9 @@ pub struct ForemanApiHost {
   pub operatingsystem_name: Option<String>,
   pub organization_id: Option<i64>,
   pub organization_name: Option<String>,
-  pub owner_id: i64,
-  pub owner_name: String,
-  pub owner_type: String,
+  pub owner_id: Option<i64>,
+  pub owner_name: Option<String>,
+  pub owner_type: Option<String>,
   pub provision_method: Option<String>,
   pub ptable_id: Option<i64>,
   pub ptable_name: Option<String>,
@@ -99,7 +112,7 @@ pub struct ForemanApiHost {
   pub puppet_proxy: Option<ForemanApiProxy>,
   pub puppet_proxy_id: Option<i64>,
   pub puppet_proxy_name: Option<String>,
-  pub puppet_status: i64,
+  pub puppet_status: Option<i64>,
   pub pxe_loader: Option<String>,
   pub realm_id: Option<i64>,
   pub realm_name: Option<String>,
@@ -113,8 +126,8 @@ pub struct ForemanApiHost {
   pub subnet_id: Option<i64>,
   pub subnet_name: Option<String>,
   pub updated_at: Option<String>,
-  pub uptime_seconds: Option<String>,
-  pub use_image: Option<String>,
+  pub uptime_seconds: Option<i64>,
+  pub use_image: Option<bool>,
   pub uuid: Option<String>,
 }
 
@@ -124,31 +137,68 @@ pub struct ForemanApiPage<R> {
   pub per_page: i64,
   pub search: Option<String>,
   pub results: Vec<R>,
-  pub sort: ForemanApiSortBy,
+  pub sort: Option<ForemanApiSortBy>,
   pub subtotal: i64,
   pub total: i64,
 }
 
-pub fn fetch_hosts(config: &Config) -> Result<Vec<String>, ForemanError> {
-  let url = format!(
-    "{url_base}/api/hosts?search={search}",
-    url_base = config.foreman_url,
-    search = config.search,
-  );
+const PER_PAGE: i64 = 250;
 
-  // Foreman supports both OAuth and basic auth. Use basic for simplicity for
-  // now. See https://projects.theforeman.org/projects/foreman/wiki/API_OAuth
-  // when that fateful day arrives.
-  let resp = reqwest::blocking::Client::new()
+// Query params for a single page of /api/hosts.
+#[derive(Serialize)]
+struct HostsQuery<'a> {
+  search: &'a str,
+  page: i64,
+  per_page: i64,
+}
+
+fn fetch_page(
+  config: &Config,
+  page: i64,
+) -> Result<ForemanApiPage<ForemanApiHost>, ForemanError> {
+  let url = format!("{}/api/hosts", config.foreman_url);
+  let query = HostsQuery {
+    search: &config.search,
+    page,
+    per_page: PER_PAGE,
+  };
+
+  let text = reqwest::blocking::Client::new()
     .get(&url)
     .basic_auth(&config.foreman_user, Some(&config.foreman_password))
+    .query(&query)
     .send()
     .map_err(|source| ForemanError::HostFetch {
       url: url.clone(),
       source,
     })?
-    .json::<ForemanApiPage<ForemanApiHost>>()
-    .map_err(|source| ForemanError::ResponseParse { url, source })?;
+    .text()
+    .map_err(|source| ForemanError::ResponseRead {
+      url: url.clone(),
+      source,
+    })?;
 
-  Ok(resp.results.into_iter().map(|h| h.name).collect())
+  serde_json::from_str::<ForemanApiPage<ForemanApiHost>>(&text).map_err(
+    |source| ForemanError::ResponseParse {
+      url,
+      source,
+      body: text.chars().take(500).collect(),
+    },
+  )
+}
+
+pub fn fetch_hosts(config: &Config) -> Result<Vec<String>, ForemanError> {
+  let mut all_hosts: Vec<String> = Vec::new();
+  let mut page = 1i64;
+
+  loop {
+    let resp = fetch_page(config, page)?;
+    all_hosts.extend(resp.results.into_iter().map(|h| h.name));
+    if all_hosts.len() as i64 >= resp.total {
+      break;
+    }
+    page += 1;
+  }
+
+  Ok(all_hosts)
 }
