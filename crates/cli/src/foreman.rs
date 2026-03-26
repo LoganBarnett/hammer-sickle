@@ -193,8 +193,11 @@ pub fn fetch_hosts(config: &Config) -> Result<Vec<String>, ForemanError> {
 
   loop {
     let resp = fetch_page(config, page)?;
+    // subtotal is the count matching the search filter; total is all hosts in
+    // the system regardless of search. Paginate against subtotal.
+    let subtotal = resp.subtotal;
     all_hosts.extend(resp.results.into_iter().map(|h| h.name));
-    if all_hosts.len() as i64 >= resp.total {
+    if all_hosts.len() as i64 >= subtotal {
       break;
     }
     page += 1;
