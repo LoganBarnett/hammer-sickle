@@ -9,3 +9,7 @@ log_format = "text"  # Options: text, json
 # foreman_url = "https://foreman.example.com"
 # foreman_user = "admin"
 # foreman_password = "secret"
+
+# Number of hosts to contact simultaneously.
+# 1 = sequential (default), 0 = one thread per logical CPU.
+# concurrency = 1

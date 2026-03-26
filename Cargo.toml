@@ -31,5 +31,9 @@ toml = "0.8"
 # Error handling
 thiserror = "2.0"
 
+# Concurrency
+rayon = "1.10"
+
 # Shared library
 hammer-sickle-lib = { path = "crates/lib" }
+hash-color-lib = { path = "../hash-color/crates/lib" }
