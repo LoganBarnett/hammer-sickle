@@ -61,7 +61,7 @@ pub struct CliRaw {
   #[arg(long, env = "LOG_FORMAT")]
   pub log_format: Option<String>,
 
-  /// Maximum number of hosts to contact simultaneously (0 = all at once)
+  /// Maximum number of hosts to contact simultaneously (default: 20, 0 = all at once)
   #[arg(short = 'j', long, env = "CONCURRENCY")]
   pub concurrency: Option<usize>,
 
@@ -166,7 +166,7 @@ impl Config {
         )
       })?;
 
-    let concurrency = cli.concurrency.or(config_file.concurrency).unwrap_or(1);
+    let concurrency = cli.concurrency.or(config_file.concurrency).unwrap_or(20);
 
     Ok(Config {
       log_level,
