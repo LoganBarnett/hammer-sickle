@@ -36,4 +36,4 @@ rayon = "1.10"
 
 # Shared library
 hammer-sickle-lib = { path = "crates/lib" }
-hash-color-lib = { path = "../hash-color/crates/lib" }
+hash-color-lib = { git = "ssh://git@gitea.proton:2222/logan/hash-color.git" }
