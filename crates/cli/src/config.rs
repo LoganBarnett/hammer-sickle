@@ -68,6 +68,14 @@ pub struct CliRaw {
   /// Path to configuration file
   #[arg(long, env = "CONFIG_FILE")]
   pub config: Option<PathBuf>,
+
+  /// Emit a JSON report of per-host results to stdout
+  #[arg(long)]
+  pub report_json: bool,
+
+  /// Exit codes that count as success (comma-separated, default: 0)
+  #[arg(long, value_delimiter = ',')]
+  pub success_codes: Option<Vec<i32>>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -78,6 +86,8 @@ pub struct ConfigFileRaw {
   pub foreman_user: Option<String>,
   pub foreman_password: Option<String>,
   pub concurrency: Option<usize>,
+  pub report_json: Option<bool>,
+  pub success_codes: Option<Vec<i32>>,
 }
 
 impl ConfigFileRaw {
@@ -107,6 +117,8 @@ pub struct Config {
   pub foreman_password: String,
   // 0 means rayon auto-detects (one thread per logical CPU).
   pub concurrency: usize,
+  pub report_json: bool,
+  pub success_codes: Vec<i32>,
 }
 
 impl Config {
@@ -168,6 +180,17 @@ impl Config {
 
     let concurrency = cli.concurrency.or(config_file.concurrency).unwrap_or(20);
 
+    let report_json = if cli.report_json {
+      true
+    } else {
+      config_file.report_json.unwrap_or(false)
+    };
+
+    let success_codes = cli
+      .success_codes
+      .or(config_file.success_codes)
+      .unwrap_or_else(|| vec![0]);
+
     Ok(Config {
       log_level,
       log_format,
@@ -177,6 +200,8 @@ impl Config {
       foreman_user,
       foreman_password,
       concurrency,
+      report_json,
+      success_codes,
     })
   }
 }

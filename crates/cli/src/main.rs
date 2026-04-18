@@ -38,35 +38,68 @@ enum ApplicationError {
   },
 }
 
-fn main() -> Result<(), ApplicationError> {
+#[derive(Debug, serde::Serialize)]
+struct HostResult {
+  host: String,
+  exit_code: Option<i32>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  error: Option<String>,
+}
+
+fn main() {
   let cli = CliRaw::parse();
 
-  let config = Config::from_cli_and_file(cli).map_err(|e| {
-    eprintln!("Configuration error: {}", e);
-    ApplicationError::ConfigurationLoad(e)
-  })?;
+  let config = match Config::from_cli_and_file(cli) {
+    Ok(c) => c,
+    Err(e) => {
+      eprintln!("Configuration error: {}", e);
+      std::process::exit(1);
+    }
+  };
 
   init_logging(config.log_level, config.log_format);
 
   info!("Starting hammer-sickle");
 
-  run(config)?;
+  let results = match run(&config) {
+    Ok(r) => r,
+    Err(e) => {
+      eprintln!("{}", e);
+      std::process::exit(1);
+    }
+  };
+
+  if config.report_json {
+    println!(
+      "{}",
+      serde_json::to_string_pretty(&results)
+        .expect("Failed to serialize results")
+    );
+  }
+
+  let any_failed = results.iter().any(|r| match r.exit_code {
+    Some(code) => !config.success_codes.contains(&code),
+    None => true,
+  });
 
   info!("Done");
-  Ok(())
+
+  if any_failed {
+    std::process::exit(1);
+  }
 }
 
-fn run(config: Config) -> Result<(), ApplicationError> {
-  let hosts = foreman::fetch_hosts(&config)?;
+fn run(config: &Config) -> Result<Vec<HostResult>, ApplicationError> {
+  let hosts = foreman::fetch_hosts(config)?;
   info!(
     count = hosts.len(),
     search = %config.search,
     "Fetched hosts from Foreman",
   );
 
-  let Some(command) = config.command else {
+  let Some(command) = config.command.as_deref() else {
     hosts.iter().for_each(|h| println!("{}", h));
-    return Ok(());
+    return Ok(Vec::new());
   };
 
   rayon::ThreadPoolBuilder::new()
@@ -77,12 +110,34 @@ fn run(config: Config) -> Result<(), ApplicationError> {
       source,
     })?
     .install(|| {
-      hosts.par_iter().for_each(|host| {
-        if let Err(e) = ssh::host_command_send(host, &command) {
-          warn!(host = %host, error = %e, "SSH command failed");
-        }
-      });
-    });
+      Ok(
+        hosts
+          .par_iter()
+          .map(|host| {
+            let mut output: Box<dyn std::io::Write + Send> =
+              if config.report_json {
+                Box::new(std::io::stderr())
+              } else {
+                Box::new(std::io::stdout())
+              };
 
-  Ok(())
+            match ssh::host_command_send(host, command, &mut *output) {
+              Ok(code) => HostResult {
+                host: host.clone(),
+                exit_code: Some(code),
+                error: None,
+              },
+              Err(e) => {
+                warn!(host = %host, error = %e, "SSH command failed");
+                HostResult {
+                  host: host.clone(),
+                  exit_code: None,
+                  error: Some(e.to_string()),
+                }
+              }
+            }
+          })
+          .collect(),
+      )
+    })
 }

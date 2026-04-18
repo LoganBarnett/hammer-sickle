@@ -13,3 +13,7 @@ log_format = "text"  # Options: text, json
 # Number of hosts to contact simultaneously.
 # 1 = sequential (default), 0 = one thread per logical CPU.
 # concurrency = 1
+
+# Reporting
+# report_json = false  # Emit a JSON report of per-host results to stdout
+# success_codes = [0]  # Exit codes that count as success
