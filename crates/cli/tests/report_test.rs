@@ -81,6 +81,28 @@ fn mock_ssh_dir(exit_code: i32) -> TempDir {
   dir
 }
 
+/// Creates a temp directory containing a mock `ssh` script with a custom
+/// body.  The script receives the hostname as `$1` and command as `$2`.
+fn mock_ssh_dir_with_script(body: &str) -> TempDir {
+  let dir = TempDir::new("mock-ssh");
+  let script_path = dir.path.join("ssh");
+  let script = format!("#!/bin/sh\n{}\n", body);
+  std::fs::write(&script_path, &script)
+    .expect("Failed to write mock ssh script");
+
+  #[cfg(unix)]
+  {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(
+      &script_path,
+      std::fs::Permissions::from_mode(0o755),
+    )
+    .expect("Failed to chmod mock ssh script");
+  }
+
+  dir
+}
+
 /// Starts a minimal HTTP server that returns a single-page Foreman API
 /// response containing the given hostnames.  The thread exits when the
 /// listener is dropped (accept returns an error).
@@ -296,4 +318,46 @@ fn test_no_command_lists_hosts() {
     "Expected beta.example.com on its own line, got: {:?}",
     lines
   );
+}
+
+#[test]
+fn test_report_json_mixed_results() {
+  let ssh_dir = mock_ssh_dir_with_script(
+    r#"echo "$1: mock output"
+case "$1" in
+  *fail*) exit 1 ;;
+  *)      exit 0 ;;
+esac"#,
+  );
+  let (addr, _handle) =
+    start_mock_foreman(&["good.example.com", "fail.example.com"]);
+
+  let output = base_command(&addr, &ssh_dir)
+    .arg("--report-json")
+    .arg("-c")
+    .arg("test")
+    .output()
+    .expect("Failed to execute binary");
+
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  assert_eq!(
+    output.status.code(),
+    Some(1),
+    "Expected exit 1 (at least one host failed)\nstdout: {}\nstderr: {}",
+    stdout,
+    String::from_utf8_lossy(&output.stderr)
+  );
+
+  let results: Vec<HostResult> =
+    serde_json::from_str(&stdout).unwrap_or_else(|e| {
+      panic!("Failed to parse JSON: {}\nstdout: {}", e, stdout)
+    });
+
+  assert_eq!(results.len(), 2);
+
+  let good = results.iter().find(|r| r.host == "good.example.com");
+  let bad = results.iter().find(|r| r.host == "fail.example.com");
+
+  assert_eq!(good.expect("missing good.example.com").exit_code, Some(0));
+  assert_eq!(bad.expect("missing fail.example.com").exit_code, Some(1));
 }

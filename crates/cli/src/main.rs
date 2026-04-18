@@ -14,6 +14,8 @@ mod foreman;
 mod logging;
 mod ssh;
 
+use std::process::ExitCode;
+
 use clap::Parser;
 use config::{CliRaw, Config, ConfigError};
 use foreman::ForemanError;
@@ -46,14 +48,14 @@ struct HostResult {
   error: Option<String>,
 }
 
-fn main() {
+fn main() -> ExitCode {
   let cli = CliRaw::parse();
 
   let config = match Config::from_cli_and_file(cli) {
     Ok(c) => c,
     Err(e) => {
       eprintln!("Configuration error: {}", e);
-      std::process::exit(1);
+      return ExitCode::FAILURE;
     }
   };
 
@@ -65,7 +67,7 @@ fn main() {
     Ok(r) => r,
     Err(e) => {
       eprintln!("{}", e);
-      std::process::exit(1);
+      return ExitCode::FAILURE;
     }
   };
 
@@ -85,7 +87,9 @@ fn main() {
   info!("Done");
 
   if any_failed {
-    std::process::exit(1);
+    ExitCode::FAILURE
+  } else {
+    ExitCode::SUCCESS
   }
 }
 
